@@ -10,7 +10,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy::executor::{task, Executor};
 use embassy::util::Forever;
-use embassy_rp::gpio;
+use embassy_rp::{gpio, uart, Peripherals};
 use embedded_hal::digital::v2::OutputPin;
 use gpio::Gpio25;
 use panic_probe as _;
@@ -31,15 +31,21 @@ defmt::timestamp! {"{=u64}", {
 
 #[task]
 async fn run() {
-    let led: gpio::Gpio25 = unsafe { mem::transmute(()) };
-    let mut led = gpio::Output::new(led, gpio::Level::Low);
+    let p = unsafe { Peripherals::steal() };
+
+    let mut uart = uart::Uart::new(p.uart0, p.gpio0, p.gpio1, p.gpio2, p.gpio3, 115200, 8, 1);
+    uart.send("Hello World!\r\n".as_bytes());
+
+    let mut led = gpio::Output::new(p.gpio25, gpio::Level::Low);
 
     loop {
         info!("led on!");
+        uart.send("ON!\r".as_bytes());
         led.set_high().unwrap();
         cortex_m::asm::delay(1_000_000);
 
         info!("led off!");
+        uart.send("Off!\r".as_bytes());
         led.set_low().unwrap();
         cortex_m::asm::delay(4_000_000);
     }

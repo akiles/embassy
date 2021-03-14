@@ -71,4 +71,10 @@ pub unsafe fn init() {
 
     pll::PLL::new(pll::PllSys).configure(1, 1500_000_000, 6, 2);
     pll::PLL::new(pll::PllUsb).configure(1, 480_000_000, 5, 2);
+
+    // Activate peripheral clock and take external oscillator as input
+    pac::CLOCKS.clk_peri_ctrl().write(|w| {
+        w.set_enable(true);
+        w.set_auxsrc(pac::clocks::vals::ClkPeriCtrlAuxsrc::XOSC_CLKSRC);
+    });
 }

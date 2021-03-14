@@ -22,7 +22,7 @@ impl Pin for AnyPin {
 macro_rules! gpio {
     ($name:ident, $bank:expr, $pin_num:expr) => {
         pub struct $name {
-            _private: (),
+            pub(crate) _private: (),
         }
 
         impl Pin for $name {
