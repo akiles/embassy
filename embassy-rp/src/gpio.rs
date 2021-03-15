@@ -4,6 +4,120 @@ use crate::pac::SIO;
 
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 
+/// Represents a digital input or output level.
+#[derive(Debug, Eq, PartialEq)]
+pub enum Level {
+    Low,
+    High,
+}
+
+/// Represents a pull setting for an input.
+#[derive(Debug, Eq, PartialEq)]
+pub enum Pull {
+    None,
+    Up,
+    Down,
+}
+
+/// A GPIO bank with up to 32 pins.
+#[derive(Debug, Eq, PartialEq)]
+pub enum Bank {
+    Bank0 = 0,
+    Qspi = 1,
+}
+
+pub struct Input<T: Pin> {
+    pin: T,
+}
+
+impl<T: Pin> Input<T> {
+    pub fn new(pin: T, pull: Pull) -> Self {
+        // todo
+
+        Self { pin }
+    }
+}
+
+impl<T: Pin> Drop for Input<T> {
+    fn drop(&mut self) {
+        // todo
+    }
+}
+
+impl<T: Pin> InputPin for Input<T> {
+    type Error = !;
+
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        self.is_low().map(|v| !v)
+    }
+
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        // todo
+        Ok(true)
+    }
+}
+
+pub struct Output<T: Pin> {
+    pin: T,
+}
+
+impl<T: Pin> Output<T> {
+    // TODO opendrain
+    pub fn new(pin: T, initial_output: Level) -> Self {
+        // todo
+        unsafe {
+            match initial_output {
+                Level::High => pin.sio_out().value_set().write_value(1 << pin.pin()),
+                Level::Low => pin.sio_out().value_clr().write_value(1 << pin.pin()),
+            }
+            pin.sio_oe().value_set().write_value(1 << pin.pin());
+
+            pin.io().ctrl().write(|w| {
+                w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::SIO_0.0);
+            });
+        }
+
+        Self { pin }
+    }
+}
+
+impl<T: Pin> Drop for Output<T> {
+    fn drop(&mut self) {
+        // todo
+    }
+}
+
+impl<T: Pin> OutputPin for Output<T> {
+    type Error = !;
+
+    /// Set the output as high.
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        let val = 1 << self.pin.pin();
+        unsafe { self.pin.sio_out().value_set().write_value(val) };
+        Ok(())
+    }
+
+    /// Set the output as low.
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        let val = 1 << self.pin.pin();
+        unsafe { self.pin.sio_out().value_clr().write_value(val) };
+        Ok(())
+    }
+}
+
+impl<T: Pin> StatefulOutputPin for Output<T> {
+    /// Is the output pin set as high?
+    fn is_set_high(&self) -> Result<bool, Self::Error> {
+        self.is_set_low().map(|v| !v)
+    }
+
+    /// Is the output pin set as low?
+    fn is_set_low(&self) -> Result<bool, Self::Error> {
+        // todo
+        Ok(true)
+    }
+}
+
 pub(crate) mod sealed {
     use super::*;
 
@@ -124,117 +238,3 @@ gpio!(QspiSd0, Bank::Qspi, 2);
 gpio!(QspiSd1, Bank::Qspi, 3);
 gpio!(QspiSd2, Bank::Qspi, 4);
 gpio!(QspiSd3, Bank::Qspi, 5);
-
-/// Represents a digital input or output level.
-#[derive(Debug, Eq, PartialEq)]
-pub enum Level {
-    Low,
-    High,
-}
-
-/// Represents a pull setting for an input.
-#[derive(Debug, Eq, PartialEq)]
-pub enum Pull {
-    None,
-    Up,
-    Down,
-}
-
-/// A GPIO bank with up to 32 pins.
-#[derive(Debug, Eq, PartialEq)]
-pub enum Bank {
-    Bank0 = 0,
-    Qspi = 1,
-}
-
-pub struct Input<T: Pin> {
-    pin: T,
-}
-
-impl<T: Pin> Input<T> {
-    pub fn new(pin: T, pull: Pull) -> Self {
-        // todo
-
-        Self { pin }
-    }
-}
-
-impl<T: Pin> Drop for Input<T> {
-    fn drop(&mut self) {
-        // todo
-    }
-}
-
-impl<T: Pin> InputPin for Input<T> {
-    type Error = !;
-
-    fn is_high(&self) -> Result<bool, Self::Error> {
-        self.is_low().map(|v| !v)
-    }
-
-    fn is_low(&self) -> Result<bool, Self::Error> {
-        // todo
-        Ok(true)
-    }
-}
-
-pub struct Output<T: Pin> {
-    pin: T,
-}
-
-impl<T: Pin> Output<T> {
-    // TODO opendrain
-    pub fn new(pin: T, initial_output: Level) -> Self {
-        // todo
-        unsafe {
-            match initial_output {
-                Level::High => pin.sio_out().value_set().write_value(1 << pin.pin()),
-                Level::Low => pin.sio_out().value_clr().write_value(1 << pin.pin()),
-            }
-            pin.sio_oe().value_set().write_value(1 << pin.pin());
-
-            pin.io().ctrl().write(|w| {
-                w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::SIO_0.0);
-            });
-        }
-
-        Self { pin }
-    }
-}
-
-impl<T: Pin> Drop for Output<T> {
-    fn drop(&mut self) {
-        // todo
-    }
-}
-
-impl<T: Pin> OutputPin for Output<T> {
-    type Error = !;
-
-    /// Set the output as high.
-    fn set_high(&mut self) -> Result<(), Self::Error> {
-        let val = 1 << self.pin.pin();
-        unsafe { self.pin.sio_out().value_set().write_value(val) };
-        Ok(())
-    }
-
-    /// Set the output as low.
-    fn set_low(&mut self) -> Result<(), Self::Error> {
-        let val = 1 << self.pin.pin();
-        unsafe { self.pin.sio_out().value_clr().write_value(val) };
-        Ok(())
-    }
-}
-
-impl<T: Pin> StatefulOutputPin for Output<T> {
-    /// Is the output pin set as high?
-    fn is_set_high(&self) -> Result<bool, Self::Error> {
-        self.is_set_low().map(|v| !v)
-    }
-
-    /// Is the output pin set as low?
-    fn is_set_low(&self) -> Result<bool, Self::Error> {
-        // todo
-        Ok(true)
-    }
-}
