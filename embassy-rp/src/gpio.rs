@@ -1,19 +1,72 @@
 use crate::pac;
-use crate::pac::generic::{Reg, R, RW, W};
+use crate::pac::generic::{Reg, RW};
 use crate::pac::SIO;
 
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 
+pub(crate) mod sealed {
+    use super::*;
+
+    pub trait Pin: Sized {
+        fn pin_bank(&self) -> u8;
+
+        #[inline]
+        fn pin(&self) -> u8 {
+            self.pin_bank() & 0x1f
+        }
+
+        #[inline]
+        fn bank(&self) -> Bank {
+            if self.pin_bank() & 0x20 == 0 {
+                Bank::Bank0
+            } else {
+                Bank::Qspi
+            }
+        }
+
+        fn io(&self) -> pac::io::Gpio {
+            let block = match self.bank() {
+                Bank::Bank0 => crate::pac::IO_BANK0,
+                Bank::Qspi => crate::pac::IO_QSPI,
+            };
+            block.gpio(self.pin() as _)
+        }
+
+        fn pad_ctrl(&self) -> Reg<pac::pads::regs::GpioCtrl, RW> {
+            let block = match self.bank() {
+                Bank::Bank0 => crate::pac::PADS_BANK0,
+                Bank::Qspi => crate::pac::PADS_QSPI,
+            };
+            block.gpio(self.pin() as _)
+        }
+        fn sio_out(&self) -> pac::sio::Gpio {
+            SIO.gpio_out(self.bank() as _)
+        }
+        fn sio_oe(&self) -> pac::sio::Gpio {
+            SIO.gpio_oe(self.bank() as _)
+        }
+        fn sio_in(&self) -> Reg<u32, RW> {
+            SIO.gpio_in(self.bank() as _)
+        }
+    }
+}
+
 // TODO this trait should be sealed
-pub trait Pin {
-    fn pin_bank(&self) -> u8;
+pub trait Pin: sealed::Pin {
+    /// Degrade to a generic pin struct
+    fn degrade(self) -> AnyPin {
+        AnyPin {
+            pin_bank: self.pin_bank(),
+        }
+    }
 }
 
 pub struct AnyPin {
     pin_bank: u8,
 }
 
-impl Pin for AnyPin {
+impl Pin for AnyPin {}
+impl sealed::Pin for AnyPin {
     fn pin_bank(&self) -> u8 {
         self.pin_bank
     }
@@ -25,7 +78,8 @@ macro_rules! gpio {
             pub(crate) _private: (),
         }
 
-        impl Pin for $name {
+        impl Pin for $name {}
+        impl sealed::Pin for $name {
             fn pin_bank(&self) -> u8 {
                 ($bank as u8) * 32 + $pin_num
             }
@@ -91,70 +145,6 @@ pub enum Pull {
 pub enum Bank {
     Bank0 = 0,
     Qspi = 1,
-}
-
-// TODO: If Pin is sealed, maybe these can be default methods in Pin instead.
-// TODO: some of these shouldn't be public
-pub trait PinExt {
-    fn pin(&self) -> u8;
-    fn bank(&self) -> Bank;
-
-    // TODO: should these take &mut self and/or be unsafe?
-    fn io(&self) -> pac::io::Gpio;
-    fn pad_ctrl(&self) -> Reg<pac::pads::regs::GpioCtrl, RW>;
-    fn sio_out(&self) -> pac::sio::Gpio;
-    fn sio_oe(&self) -> pac::sio::Gpio;
-    fn sio_in(&self) -> Reg<u32, RW>;
-
-    /// Degrade to a generic pin struct, which can be used with peripherals
-    fn degrade(self) -> AnyPin;
-}
-
-impl<T: Pin> PinExt for T {
-    #[inline]
-    fn pin(&self) -> u8 {
-        self.pin_bank() & 0x1f
-    }
-
-    #[inline]
-    fn bank(&self) -> Bank {
-        if self.pin_bank() & 0x20 == 0 {
-            Bank::Bank0
-        } else {
-            Bank::Qspi
-        }
-    }
-
-    fn io(&self) -> pac::io::Gpio {
-        let block = match self.bank() {
-            Bank::Bank0 => crate::pac::IO_BANK0,
-            Bank::Qspi => crate::pac::IO_QSPI,
-        };
-        block.gpio(self.pin() as _)
-    }
-
-    fn pad_ctrl(&self) -> Reg<pac::pads::regs::GpioCtrl, RW> {
-        let block = match self.bank() {
-            Bank::Bank0 => crate::pac::PADS_BANK0,
-            Bank::Qspi => crate::pac::PADS_QSPI,
-        };
-        block.gpio(self.pin() as _)
-    }
-    fn sio_out(&self) -> pac::sio::Gpio {
-        SIO.gpio_out(self.bank() as _)
-    }
-    fn sio_oe(&self) -> pac::sio::Gpio {
-        SIO.gpio_oe(self.bank() as _)
-    }
-    fn sio_in(&self) -> Reg<u32, RW> {
-        SIO.gpio_in(self.bank() as _)
-    }
-
-    fn degrade(self) -> AnyPin {
-        AnyPin {
-            pin_bank: self.pin_bank(),
-        }
-    }
 }
 
 pub struct Input<T: Pin> {

@@ -1,5 +1,5 @@
 use defmt::{assert, *};
-use gpio::{Pin, PinExt};
+use gpio::{sealed::Pin as _, Pin};
 
 use crate::{gpio, pac};
 
