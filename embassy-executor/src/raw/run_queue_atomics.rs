@@ -84,4 +84,22 @@ impl RunQueue {
             on_task(task);
         }
     }
+
+    pub(crate) fn print(&self) {
+        // Atomically empty the queue.
+        info!("[run queue]");
+        let ptr = self.head.load(Ordering::Acquire);
+
+        // safety: the pointer is either null or valid
+        let mut next = unsafe { NonNull::new(ptr).map(|ptr| TaskRef::from_ptr(ptr.as_ptr())) };
+
+        // Iterate the linked list of tasks that were previously in the queue.
+        while let Some(task) = next {
+            // If the task re-enqueues itself, the `next` pointer will get overwritten.
+            // Therefore, first read the next pointer, and only then process the task.
+            // safety: there are no concurrent accesses to `next`
+            task.print();
+            next = unsafe { task.header().run_queue_item.next.get() };
+        }
+    }
 }

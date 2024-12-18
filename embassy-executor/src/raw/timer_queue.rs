@@ -73,4 +73,14 @@ impl TimerQueue {
             }
         }
     }
+
+    pub(crate) unsafe fn print(&self) {
+        info!("[timer queue]");
+        let mut prev = &self.head;
+        while let Some(p) = prev.get() {
+            let task = p;
+            task.print();
+            prev = &task.header().timer_queue_item.next;
+        }
+    }
 }

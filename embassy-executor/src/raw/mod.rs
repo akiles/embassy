@@ -84,6 +84,11 @@ impl TaskRef {
     pub(crate) fn as_ptr(self) -> *const TaskHeader {
         self.ptr.as_ptr()
     }
+
+    pub fn print(&self) {
+        info!("[task] {:08x}", self.as_ptr() as u32);
+        self.header().state.print();
+    }
 }
 
 /// Raw storage in which a task can be spawned.
@@ -431,6 +436,12 @@ impl SyncExecutor {
         #[cfg(feature = "trace")]
         trace::executor_idle(self)
     }
+
+    pub unsafe fn print(&self) {
+        info!("[alarm] {}", self.alarm.id());
+        self.run_queue.print();
+        self.timer_queue.print();
+    }
 }
 
 /// Raw executor.
@@ -490,6 +501,10 @@ impl Executor {
             inner: SyncExecutor::new(Pender(context)),
             _not_sync: PhantomData,
         }
+    }
+
+    pub unsafe fn print(&self) {
+        self.inner.print();
     }
 
     /// Spawn a task in this executor.

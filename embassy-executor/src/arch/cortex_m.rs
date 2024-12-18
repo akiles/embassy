@@ -162,6 +162,11 @@ mod interrupt {
             }
         }
 
+        pub unsafe fn print(&self) {
+            let executor = unsafe { (&*self.executor.get()).assume_init_ref() };
+            executor.print();
+        }
+
         /// Executor interrupt callback.
         ///
         /// # Safety

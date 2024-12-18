@@ -8,6 +8,7 @@ extern "Rust" {
     fn _embassy_trace_task_exec_end(excutor_id: u32, task_id: u32);
     fn _embassy_trace_task_ready_begin(executor_id: u32, task_id: u32);
     fn _embassy_trace_executor_idle(executor_id: u32);
+    fn _embassy_trace_executor_wake(executor_id: u32);
 }
 
 #[inline]
@@ -59,6 +60,14 @@ pub(crate) fn executor_idle(executor: &SyncExecutor) {
     }
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::system_idle();
+}
+
+#[inline]
+pub(crate) fn executor_wake(executor: &SyncExecutor) {
+    #[cfg(not(feature = "rtos-trace"))]
+    unsafe {
+        _embassy_trace_executor_wake(executor as *const _ as u32)
+    }
 }
 
 #[cfg(all(feature = "rtos-trace", feature = "integrated-timers"))]

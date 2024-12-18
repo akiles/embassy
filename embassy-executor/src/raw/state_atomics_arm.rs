@@ -100,4 +100,13 @@ impl State {
     pub fn timer_dequeue(&self) {
         self.timer_queued.store(false, Ordering::Relaxed);
     }
+
+    pub fn print(&self) {
+        info!(
+            "[task] spawned: {}, run_queued: {}, timer_queued: {}",
+            self.spawned.load(Ordering::Acquire),
+            self.run_queued.load(Ordering::Acquire),
+            self.timer_queued.load(Ordering::Acquire)
+        );
+    }
 }
