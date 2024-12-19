@@ -87,7 +87,15 @@ impl TaskRef {
 
     pub fn print(&self) {
         info!("[task] {:08x}", self.as_ptr() as u32);
-        self.header().state.print();
+        self.header().print();
+    }
+}
+
+impl TaskHeader {
+    pub fn print(&self) {
+        self.state.print();
+        #[cfg(feature = "integrated-timers")]
+        info!("[task] expires at {}", unsafe { self.expires_at.get() });
     }
 }
 
