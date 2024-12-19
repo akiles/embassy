@@ -98,6 +98,10 @@ struct AlarmState {
 
 unsafe impl Send for AlarmState {}
 
+pub fn print() {
+    DRIVER.print();
+}
+
 impl AlarmState {
     const fn new() -> Self {
         Self {

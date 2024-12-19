@@ -66,7 +66,7 @@ pub(crate) mod fmt;
 pub(crate) mod util;
 
 #[cfg(feature = "_time-driver")]
-mod time_driver;
+pub mod time_driver;
 
 #[cfg(not(feature = "nrf51"))]
 pub mod buffered_uarte;
