@@ -153,13 +153,11 @@ impl RtcDriver {
     fn on_interrupt(&self) {
         let r = rtc();
         if r.events_ovrflw.read().bits() == 1 {
-            info!("[on_interrupt] events_ovrflw matched");
             r.events_ovrflw.write(|w| w);
             self.next_period();
         }
 
         if r.events_compare[3].read().bits() == 1 {
-            info!("[on_interrupt] events_compare[3] matched");
             r.events_compare[3].write(|w| w);
             self.next_period();
         }
@@ -184,7 +182,6 @@ impl RtcDriver {
             for n in 0..ALARM_COUNT {
                 let alarm = &self.alarms.borrow(cs)[n];
                 let at = alarm.timestamp.get();
-                info!("[next_period] {}: schedule if {} < {}", n, at, t + 0xc00000);
 
                 if at < t + 0xc00000 {
                     // just enable it. `set_alarm` has already set the correct CC val.
@@ -205,7 +202,6 @@ impl RtcDriver {
         r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
 
         let alarm = &self.alarms.borrow(cs)[n];
-        info!("[trigger_alarm] {}: {}", n, alarm.timestamp.get());
         alarm.timestamp.set(u64::MAX);
 
         // Call after clearing alarm, so the callback can set another alarm.
@@ -281,7 +277,6 @@ impl Driver for RtcDriver {
             let r = rtc();
 
             let t = self.now();
-            info!("[set alarm] {} <= {}", timestamp, t);
             if timestamp <= t {
                 // If alarm timestamp has passed the alarm will not fire.
                 // Disarm the alarm and return `false` to indicate that.
