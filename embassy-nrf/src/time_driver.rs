@@ -179,7 +179,7 @@ impl RtcDriver {
         for n in 0..ALARM_COUNT {
             if r.events_compare[n].read().bits() == 1 {
                 r.events_compare[n].write(|w| w);
-                full_cs::with(|cs| {
+                full_cs(|cs| {
                     self.trigger_alarm(n, cs);
                 })
             }
@@ -187,7 +187,7 @@ impl RtcDriver {
     }
 
     fn next_period(&self) {
-        full_cs::with(|cs| {
+        full_cs(|cs| {
             let r = rtc();
             let period = self.period.load(Ordering::Relaxed) + 1;
             self.period.store(period, Ordering::Relaxed);
