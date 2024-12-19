@@ -7,11 +7,25 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time_driver::{AlarmHandle, Driver};
 
+use crate::interrupt::Interrupt;
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
+use cortex_m::peripheral::NVIC;
 
 fn rtc() -> &'static pac::rtc0::RegisterBlock {
     unsafe { &*pac::RTC1::ptr() }
+}
+
+fn full_cs<R>(f: impl FnOnce(critical_section::CriticalSection) -> R) -> R {
+    critical_section::with(|cs| unsafe {
+        let nvic = &*NVIC::PTR;
+        nvic.icer[0].write(1 << Interrupt::TIMER0 as u8);
+        compiler_fence(Ordering::SeqCst);
+        let r = f(cs);
+        compiler_fence(Ordering::SeqCst);
+        nvic.iser[0].write(1 << Interrupt::TIMER0 as u8);
+        r
+    })
 }
 
 /// Calculate the timestamp from the period count and the tick count.
@@ -165,7 +179,7 @@ impl RtcDriver {
         for n in 0..ALARM_COUNT {
             if r.events_compare[n].read().bits() == 1 {
                 r.events_compare[n].write(|w| w);
-                critical_section::with(|cs| {
+                full_cs::with(|cs| {
                     self.trigger_alarm(n, cs);
                 })
             }
@@ -173,7 +187,7 @@ impl RtcDriver {
     }
 
     fn next_period(&self) {
-        critical_section::with(|cs| {
+        full_cs::with(|cs| {
             let r = rtc();
             let period = self.period.load(Ordering::Relaxed) + 1;
             self.period.store(period, Ordering::Relaxed);
@@ -248,7 +262,7 @@ impl Driver for RtcDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        critical_section::with(|_| {
+        full_cs(|_| {
             let id = self.alarm_count.load(Ordering::Relaxed);
             if id < ALARM_COUNT as u8 {
                 self.alarm_count.store(id + 1, Ordering::Relaxed);
@@ -260,7 +274,7 @@ impl Driver for RtcDriver {
     }
 
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        critical_section::with(|cs| {
+        full_cs(|cs| {
             let alarm = self.get_alarm(cs, alarm);
 
             alarm.callback.set(callback as *const ());
@@ -269,7 +283,7 @@ impl Driver for RtcDriver {
     }
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-        critical_section::with(|cs| {
+        full_cs(|cs| {
             let n = alarm.id() as _;
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
