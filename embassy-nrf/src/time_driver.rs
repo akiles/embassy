@@ -208,6 +208,30 @@ impl RtcDriver {
         let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
         f(alarm.ctx.get());
     }
+
+    pub fn print(&self) {
+        critical_section::with(|cs| {
+            let r = rtc();
+            let period = self.period.load(Ordering::Relaxed);
+            let alarms = self.alarm_count.load(Ordering::Relaxed);
+            info!("[time] period: {}, alarms: {}", period, alarms);
+            info!("[time] events_overflw: {:08x}", r.events_ovrflw.read().bits());
+            info!("[time] events_compare: {:08x}", r.events_compare[3].read().bits());
+            info!("[time] counter: {:08x}", r.counter.read().bits());
+            info!("[time] intenset: {:08x}", r.intenset.read().bits());
+            info!("[time] intenclr: {:08x}", r.intenclr.read().bits());
+            for n in 0..ALARM_COUNT {
+                let alarm = &self.alarms.borrow(cs)[n];
+                let at = alarm.timestamp.get();
+                info!(
+                    "[time] {}: at {}, events_compare: {:08x}",
+                    n,
+                    at,
+                    r.events_compare[n].read().bits()
+                );
+            }
+        })
+    }
 }
 
 impl Driver for RtcDriver {
