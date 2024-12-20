@@ -1,3 +1,4 @@
+use core::arch::asm;
 use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
@@ -17,15 +18,28 @@ fn rtc() -> &'static pac::rtc0::RegisterBlock {
 }
 
 fn full_cs<R>(f: impl FnOnce(critical_section::CriticalSection) -> R) -> R {
-    critical_section::with(|cs| unsafe {
-        let nvic = &*NVIC::PTR;
-        nvic.icer[0].write(1 << Interrupt::TIMER0 as u8);
+    unsafe {
+        // TODO: assert that we're in privileged level
+        // Needed because disabling irqs in non-privileged level is a noop, which would break safety.
+
+        let primask: u32;
+        asm!("mrs {}, PRIMASK", out(reg) primask);
+
+        asm!("cpsid i");
+
+        // Prevent compiler from reordering operations inside/outside the critical section.
         compiler_fence(Ordering::SeqCst);
-        let r = f(cs);
+
+        let r = f(CriticalSection::new());
+
         compiler_fence(Ordering::SeqCst);
-        nvic.iser[0].write(1 << Interrupt::TIMER0 as u8);
+
+        if primask & 1 == 0 {
+            asm!("cpsie i");
+        }
+
         r
-    })
+    }
 }
 
 /// Calculate the timestamp from the period count and the tick count.
