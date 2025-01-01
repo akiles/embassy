@@ -17,31 +17,6 @@ fn rtc() -> &'static pac::rtc0::RegisterBlock {
     unsafe { &*pac::RTC1::ptr() }
 }
 
-fn full_cs<R>(f: impl FnOnce(critical_section::CriticalSection) -> R) -> R {
-    unsafe {
-        // TODO: assert that we're in privileged level
-        // Needed because disabling irqs in non-privileged level is a noop, which would break safety.
-
-        let primask: u32;
-        asm!("mrs {}, PRIMASK", out(reg) primask);
-
-        asm!("cpsid i");
-
-        // Prevent compiler from reordering operations inside/outside the critical section.
-        compiler_fence(Ordering::SeqCst);
-
-        let r = f(CriticalSection::new());
-
-        compiler_fence(Ordering::SeqCst);
-
-        if primask & 1 == 0 {
-            asm!("cpsie i");
-        }
-
-        r
-    }
-}
-
 /// Calculate the timestamp from the period count and the tick count.
 ///
 /// The RTC counter is 24 bit. Ticking at 32768hz, it overflows every ~8 minutes. This is
@@ -193,7 +168,7 @@ impl RtcDriver {
         for n in 0..ALARM_COUNT {
             if r.events_compare[n].read().bits() == 1 {
                 r.events_compare[n].write(|w| w);
-                full_cs(|cs| {
+                critical_section::with(|cs| {
                     self.trigger_alarm(n, cs);
                 })
             }
@@ -201,7 +176,7 @@ impl RtcDriver {
     }
 
     fn next_period(&self) {
-        full_cs(|cs| {
+        critical_section::with(|cs| {
             let r = rtc();
             let period = self.period.load(Ordering::Relaxed) + 1;
             self.period.store(period, Ordering::Relaxed);
@@ -276,7 +251,7 @@ impl Driver for RtcDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        full_cs(|_| {
+        critical_section::with(|_| {
             let id = self.alarm_count.load(Ordering::Relaxed);
             if id < ALARM_COUNT as u8 {
                 self.alarm_count.store(id + 1, Ordering::Relaxed);
@@ -288,7 +263,7 @@ impl Driver for RtcDriver {
     }
 
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        full_cs(|cs| {
+        critical_section::with(|cs| {
             let alarm = self.get_alarm(cs, alarm);
 
             alarm.callback.set(callback as *const ());
@@ -297,54 +272,58 @@ impl Driver for RtcDriver {
     }
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-        full_cs(|cs| {
+        critical_section::with(|cs| {
             let n = alarm.id() as _;
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
 
             let r = rtc();
 
-            let t = self.now();
-            if timestamp <= t {
-                // If alarm timestamp has passed the alarm will not fire.
-                // Disarm the alarm and return `false` to indicate that.
-                r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+            loop {
+                let t = self.now();
+                if timestamp <= t {
+                    // If alarm timestamp has passed the alarm will not fire.
+                    // Disarm the alarm and return `false` to indicate that.
+                    r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
 
-                alarm.timestamp.set(u64::MAX);
+                    alarm.timestamp.set(u64::MAX);
 
-                return false;
+                    return false;
+                }
+
+                // If it hasn't triggered yet, setup it in the compare channel.
+
+                // Write the CC value regardless of whether we're going to enable it now or not.
+                // This way, when we enable it later, the right value is already set.
+
+                // nrf52 docs say:
+                //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
+                // To workaround this, we never write a timestamp smaller than N+3.
+                // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
+                //
+                // It is impossible for rtc to tick more than once because
+                //  - this code takes less time than 1 tick
+                //  - it runs with interrupts disabled so nothing else can preempt it.
+                //
+                // This means that an alarm can be delayed for up to 2 ticks (from t+1 to t+3), but this is allowed
+                // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
+                // and we don't do that here.
+                let safe_timestamp = timestamp.max(t + 3);
+                r.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
+
+                let diff = timestamp - t;
+                if diff < 0xc00000 {
+                    r.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
+                } else {
+                    // If it's too far in the future, don't setup the compare channel yet.
+                    // It will be setup later by `next_period`.
+                    r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+                }
+
+                if self.now() < safe_timestamp {
+                    return true;
+                }
             }
-
-            // If it hasn't triggered yet, setup it in the compare channel.
-
-            // Write the CC value regardless of whether we're going to enable it now or not.
-            // This way, when we enable it later, the right value is already set.
-
-            // nrf52 docs say:
-            //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
-            // To workaround this, we never write a timestamp smaller than N+3.
-            // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
-            //
-            // It is impossible for rtc to tick more than once because
-            //  - this code takes less time than 1 tick
-            //  - it runs with interrupts disabled so nothing else can preempt it.
-            //
-            // This means that an alarm can be delayed for up to 2 ticks (from t+1 to t+3), but this is allowed
-            // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
-            // and we don't do that here.
-            let safe_timestamp = timestamp.max(t + 3);
-            r.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
-
-            let diff = timestamp - t;
-            if diff < 0xc00000 {
-                r.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
-            } else {
-                // If it's too far in the future, don't setup the compare channel yet.
-                // It will be setup later by `next_period`.
-                r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
-            }
-
-            true
         })
     }
 }
